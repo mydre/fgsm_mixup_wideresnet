@@ -29,7 +29,7 @@ class Solver(object):
         self.target = args.target
         self.dataset = args.dataset
         # self.data_loader = return_data(args)
-        self.data_loader = return_data2()
+        self.data_loader = return_data2(args)
         self.global_epoch = 0
         self.global_iter = 0
         self.print_ = not args.silent
@@ -49,7 +49,7 @@ class Solver(object):
         self.visualization_init(args)
 
         # Histories
-        self.history = dict()
+        self.history = dict()# self.history是一个字典
         self.history['acc'] = 0.
         self.history['epoch'] = 0
         self.history['iter'] = 0
@@ -58,7 +58,7 @@ class Solver(object):
         self.model_init(args)
         self.load_ckpt = args.load_ckpt
         if self.load_ckpt != '':
-            self.load_checkpoint(self.load_ckpt)
+            self.load_checkpoint(self.load_ckpt) # 加载checkpoint，恢复信息
 
         # Adversarial Perturbation Generator
         #criterion = cuda(torch.nn.CrossEntropyLoss(), self.cuda)
@@ -149,7 +149,6 @@ class Solver(object):
                         self.tf.add_scalars(main_tag='performance/cost',
                                             tag_scalar_dict={'train':cost.data[0]},
                                             global_step=self.global_iter)
-
             self.test()
 
         if self.tensorboard:
@@ -157,6 +156,7 @@ class Solver(object):
                                 tag_scalar_dict={'test':self.history['acc']},
                                 global_step=self.history['iter'])
         print(" [*] Training Finished!")
+
 
     def test(self):
         self.set_mode('eval')
@@ -166,7 +166,7 @@ class Solver(object):
         total = 0.
 
         data_loader = self.data_loader['test']
-        for batch_idx, (images, labels) in enumerate(data_loader):
+        for batch_idx, (images, labels) in enumerate(data_loader):# 相当于测试的时候也是和训练的时候一样直接通过迭代器取出来的值
             x = Variable(cuda(images, self.cuda))
             y = Variable(cuda(labels, self.cuda))
 
@@ -201,63 +201,93 @@ class Solver(object):
                                     tag_scalar_dict={'test':cost},
                                     global_step=self.global_iter)
 
-        if self.history['acc'] < accuracy:
-            self.history['acc'] = accuracy
-            self.history['epoch'] = self.global_epoch
-            self.history['iter'] = self.global_iter
-            self.save_checkpoint('best_acc.tar')
+        # if self.history['acc'] < accuracy:
+        self.history['acc'] = accuracy
+        self.history['epoch'] = self.global_epoch
+        self.history['iter'] = self.global_iter
+        self.save_checkpoint('best_acc.tar')
 
         self.set_mode('train')
 
     def generate(self, num_sample=100, target=-1, epsilon=0.03, alpha=2/255, iteration=1):
         self.set_mode('eval')
-        x_true, y_true = self.sample_data(num_sample)
-        if isinstance(target, int) and (target in range(self.y_dim)): # range(10):[0,1,2,...,9]
-            '''
-            (Pdb) torch.LongTensor(3).fill_(10)
-            10
-            10
-            10
-            [torch.LongTensor of size 3]
-            '''
-            y_target = torch.LongTensor(y_true.size()).fill_(target)
-        else:
-            y_target = None
-        # y_target可能为None，也可能不为None
-        x_adv, changed, values = self.FGSM(x_true, y_true, y_target, epsilon, alpha, iteration)
-        accuracy, cost, accuracy_adv, cost_adv = values
 
-        save_image(x_true,
-                   self.output_dir.joinpath('legitimate(t:{},e:{},i:{}).jpg'.format(target,
-                                                                                    epsilon,
-                                                                                    iteration)),
-                   nrow=10,
-                   padding=2,
-                   pad_value=0.5)
-        save_image(x_adv,
-                   self.output_dir.joinpath('perturbed(t:{},e:{},i:{}).jpg'.format(target,
-                                                                                   epsilon,
-                                                                                   iteration)),
-                   nrow=10,
-                   padding=2,
-                   pad_value=0.5)
-        save_image(changed,
-                   self.output_dir.joinpath('changed(t:{},e:{},i:{}).jpg'.format(target,
-                                                                                 epsilon,
-                                                                                 iteration)),
-                   nrow=10,
-                   padding=3,
-                   pad_value=0.5)
+        for e in range(10):#假设有5个epoch
+            self.global_epoch += 1
+            for batch_idx,(x_true,y_true) in enumerate(self.data_loader['train']):# x_true: [torch.FloatTensor of size 100x1x28x28]
+                self.global_iter += 1
+                y_target = None
+        #x_true, y_true = self.sample_data(num_sample)
+        #if isinstance(target, int) and (target in range(self.y_dim)): # range(10):[0,1,2,...,9]
+        #    '''
+        #    (Pdb) torch.LongTensor(3).fill_(10)
+        #    10
+        #    10
+        #    10
+        #    [torch.LongTensor of size 3]
+        #    '''
+        #    y_target = torch.LongTensor(y_true.size()).fill_(target)
+        #else:
+        #    y_target = None
+        ## y_target可能为None，也可能不为None
+                values = self.FGSM(x_true, y_true, y_target, epsilon, alpha, iteration)
+                # accuracy, cost, accuracy_adv, cost_adv = values
+                correct, cost = values
+                if batch_idx % 100 == 0:
+                    if self.print_:
+                        print()
+                        print(self.env_name)
+                        print('[{:03d}:{:03d}]'.format(self.global_epoch,batch_idx))
+                        print('acc:{:.3f} loss:{:.3f}'.format(correct,cost.data[0]))
 
-        if self.visdom:
-            self.vf.imshow_multi(x_true.cpu(), title='legitimate', factor=1.5)
-            self.vf.imshow_multi(x_adv.cpu(), title='perturbed(e:{},i:{})'.format(epsilon, iteration), factor=1.5)
-            self.vf.imshow_multi(changed.cpu(), title='changed(white)'.format(epsilon), factor=1.5)
+                    if self.tensorboard:
+                        self.tf.add_scalars(main_tag='performance/acc',
+                                            tag_scalar_dict={'train': correct},
+                                            global_step=self.global_iter)
+                        self.tf.add_scalars(main_tag='performance/error',
+                                            tag_scalar_dict={'train': 1 - correct},
+                                            global_step=self.global_iter)
+                        self.tf.add_scalars(main_tag='performance/cost',
+                                            tag_scalar_dict={'train': cost.data[0]},
+                                            global_step=self.global_iter)
+            self.test()
+        if self.tensorboard:
+            self.tf.add_scalars(main_tag='performance/best/acc',
+                                tag_scalar_dict={'test': self.history['acc']},
+                                global_step=self.history['iter'])
+        print(" [*] Generating Finished!")
+        #save_image(x_true,
+        #           self.output_dir.joinpath('legitimate(t:{},e:{},i:{}).jpg'.format(target,
+        #                                                                            epsilon,
+        #                                                                            iteration)),
+        #           nrow=10,
+        #           padding=2,
+        #           pad_value=0.5)
+        #save_image(x_adv,
+        #           self.output_dir.joinpath('perturbed(t:{},e:{},i:{}).jpg'.format(target,
+        #                                                                           epsilon,
+        #                                                                           iteration)),
+        #           nrow=10,
+        #           padding=2,
+        #           pad_value=0.5)
+        #save_image(changed,
+        #           self.output_dir.joinpath('changed(t:{},e:{},i:{}).jpg'.format(target,
+        #                                                                         epsilon,
+        #                                                                         iteration)),
+        #           nrow=10,
+        #           padding=3,
+        #           pad_value=0.5)
 
-        print('[对抗样本，更新之后的net] accuracy : {:.2f} cost : {:.3f}'.format(accuracy, cost))
-        print('[对抗样本，更新之前的net] accuracy : {:.2f} cost : {:.3f}'.format(accuracy_adv, cost_adv))
+        #if self.visdom:
+        #    self.vf.imshow_multi(x_true.cpu(), title='legitimate', factor=1.5)
+        #    self.vf.imshow_multi(x_adv.cpu(), title='perturbed(e:{},i:{})'.format(epsilon, iteration), factor=1.5)
+        #    self.vf.imshow_multi(changed.cpu(), title='changed(white)'.format(epsilon), factor=1.5)
 
-        self.set_mode('train')
+           #     print('[对抗样本，更新之后的net] accuracy : {:.2f} cost : {:.3f}'.format(accuracy, cost))
+           #     print('[对抗样本，更新之前的net] accuracy : {:.2f} cost : {:.3f}'.format(accuracy_adv, cost_adv))
+           #     print('-----------------------------------',batch_idx)
+
+           # self.set_mode('train')
 
     def sample_data(self, num_sample=100):
 
@@ -293,9 +323,9 @@ class Solver(object):
         #pdb.set_trace()
         h = self.net(x)  # h相当于是logits？
         prediction = h.max(1)[1]  # 每行最大的那个值的索引
-        accuracy = torch.eq(prediction, y_true).float().mean()
-        cost = F.cross_entropy(h, y_true)  # 直接logits和y_true直接计算交叉熵损失
-        print('[原始x，更新之前的net] accuracy : {:.2f} cost : {:.3f}'.format(accuracy.data[0], cost.data[0]))
+        accuracy1 = torch.eq(prediction, y_true).float().mean()
+        cost1 = F.cross_entropy(h, y_true)  # 直接logits和y_true直接计算交叉熵损失
+        # print('[原始x，更新之前的net] accuracy : {:.2f} cost : {:.3f}'.format(accuracy.data[0], cost.data[0]))
         if iteration == 1: # 这里只对单个样本进行处理
             if targeted:
                 x_adv, h_adv, h = self.attack.fgsm(x, y_target, True, eps)
@@ -310,7 +340,7 @@ class Solver(object):
         prediction = h.max(1)[1]
         accuracy = torch.eq(prediction,y_true).float().mean()
         cost = F.cross_entropy(h,y_true)
-        print('[原始x，更新之后的net] accuracy : {:.2f} cost : {:.3f}'.format(accuracy.data[0], cost.data[0]))
+        # print('[原始x，更新之后的net] accuracy : {:.2f} cost : {:.3f}'.format(accuracy.data[0], cost.data[0]))
 
         # 对抗样本输入到更新之后的net
         h = self.net(x_adv)  # h相当于是logits？
@@ -322,28 +352,28 @@ class Solver(object):
         accuracy_adv = torch.eq(prediction_adv, y_true).float().mean()
         cost_adv = F.cross_entropy(h_adv, y_true)
 
-        # make indication of perturbed images that changed predictions of the classifier
-        if targeted:
-            changed = torch.eq(y_target, prediction_adv)
-        else:
-            changed = torch.eq(prediction, prediction_adv)
-            changed = torch.eq(changed, 0)
-        changed = changed.float().view(-1, 1, 1, 1).repeat(1, 3, 28, 28)
+        ## make indication of perturbed images that changed predictions of the classifier
+        #if targeted:
+        #    changed = torch.eq(y_target, prediction_adv)
+        #else:
+        #    changed = torch.eq(prediction, prediction_adv)
+        #    changed = torch.eq(changed, 0)
+        #changed = changed.float().view(-1, 1, 1, 1).repeat(1, 3, 28, 28)
 
-        changed[:, 0, :, :] = where(changed[:, 0, :, :] == 1, 252, 91)
-        changed[:, 1, :, :] = where(changed[:, 1, :, :] == 1, 39, 252)
-        changed[:, 2, :, :] = where(changed[:, 2, :, :] == 1, 25, 25)
-        changed = self.scale(changed/255)
-        changed[:, :, 3:-2, 3:-2] = x_adv.repeat(1, 3, 1, 1)[:, :, 3:-2, 3:-2]
+        #changed[:, 0, :, :] = where(changed[:, 0, :, :] == 1, 252, 91)
+        #changed[:, 1, :, :] = where(changed[:, 1, :, :] == 1, 39, 252)
+        #changed[:, 2, :, :] = where(changed[:, 2, :, :] == 1, 25, 25)
+        #changed = self.scale(changed/255)
+        #changed[:, :, 3:-2, 3:-2] = x_adv.repeat(1, 3, 1, 1)[:, :, 3:-2, 3:-2]
 
         self.set_mode('train')
 
-        return x_adv.data, changed.data,\
-                (accuracy.data[0], cost.data[0], accuracy_adv.data[0], cost_adv.data[0])
+        # return (accuracy.data[0], cost.data[0], accuracy_adv.data[0], cost_adv.data[0])
+        return (accuracy1.data[0], cost1)
 
-    def save_checkpoint(self, filename='ckpt.tar'):
+    def save_checkpoint(self, filename='ckpt.tar'):# 保存checkpoint
         model_states = {
-            'net':self.net.state_dict(),
+            'net':self.net.state_dict(),# net和Adam都有state_dict()函数
             }
         optim_states = {
             'optim':self.optim.state_dict(),
@@ -353,7 +383,7 @@ class Solver(object):
             'epoch':self.global_epoch,
             'history':self.history,
             'args':self.args,
-            'model_states':model_states,
+            'model_states':model_states,#把字典也存储进去
             'optim_states':optim_states,
             }
 

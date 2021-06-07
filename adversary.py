@@ -27,16 +27,11 @@ class Attack(object):
         if targeted:
             cost = self.criterion(h_adv, y) # 如果y是经过fill之后的，假的cost应该变小
         else: # y是真是的label
-            cost = self.criterion(h_adv, y) # 代价函数,真是的cost应该增大
-
-        # self.net.zero_grad() # 现在梯度没有必要保存了，因为前面forward的时候已经使用了梯度，后面通过backward反向传播的时候会重新设置梯度。
-        if x_adv.grad is not None:
-            x_adv.grad.data.fill_(0)
-
+            cost = -self.criterion(h_adv, y) # 代价函数,真是的cost应该增大
 
         self.optim.zero_grad()
-        if x_adv.grad:
-            x_adv.grad.data.zero_()
+        # if x_adv.grad:
+        #     x_adv.grad.data.zero_()
         cost.backward() # 反向传播
 
         x_adv.grad.sign_() # 相当于损失函数cost对x_adv求偏导

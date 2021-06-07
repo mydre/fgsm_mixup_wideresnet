@@ -22,22 +22,17 @@ class MyDataSet(Dataset):
         (train_set,train_labels) = load_data(folder,data_name,label_name)
         self.train_set = train_set
         self.train_labels = train_labels
-        self.transform = transforms.Compose([transforms.ToTensor(),transforms.Normalize((0.5,),(0.5,)),])
-        # self.transform = transforms.Compose([transforms.ToTensor(),])
-
+        # self.transform = transforms.Compose([transforms.ToTensor(),transforms.Normalize((0.5,),(0.5,)),])
 
     def __getitem__(self,index):#返回的是单个item（如一个图片）
         img,target = self.train_set[index],int(self.train_labels[index])
         img = torch.from_numpy(img)
         img = img.float().div(255).mul(2).add(-1)
-        # if self.transform is not None:
-        #img = self.transform(img)#将numpy数组转换为torch的Tensor
-        #img = img.view(1,28,28) # 这一句非常重要，不然的话会自动变成[28,-1,28]
-        #img = img.mul(2).sub(1)
         return img,target
 
     def __len__(self):
         return len(self.train_set)
+
 
 def load_data(data_folder,data_name,label_name):
     '''
@@ -53,13 +48,14 @@ def load_data(data_folder,data_name,label_name):
 
     return (x_train,y_train)
 
-def return_data2():
+def return_data2(args):
     trainDataset = MyDataSet('datasets/MNIST/','train-images-idx3-ubyte.gz','train-labels-idx1-ubyte.gz')
     testDataset = MyDataSet('datasets/MNIST/','t10k-images-idx3-ubyte.gz','t10k-labels-idx1-ubyte.gz')
+    batch_size = args.batch_size
     # train_loader
     train_loader = DataLoader(
         dataset=trainDataset,
-        batch_size=100,
+        batch_size=batch_size,
         shuffle=True,
         #num_workers=1,
         #pin_memory=True,
@@ -68,7 +64,7 @@ def return_data2():
 
     test_loader = DataLoader(
         dataset=testDataset,
-        batch_size=100,
+        batch_size=batch_size,
         shuffle=False,
         #num_workers=1,
         #pin_memory=True,
