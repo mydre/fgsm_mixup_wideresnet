@@ -13,6 +13,7 @@ from datasets.datasets import return_data2
 from utils.utils import rm_dir, cuda, where
 from adversary import Attack
 import pdb
+from models.model import TCN
 
 
 class Solver(object):
@@ -84,18 +85,20 @@ class Solver(object):
 
     def model_init(self, args):
         # Network
-        self.net = cuda(ToyNet(y_dim=self.y_dim), self.cuda)
-        self.net.weight_init(_type='kaiming')
+        #self.net = cuda(ToyNet(y_dim=self.y_dim), self.cuda)
+        #self.net.weight_init(_type='kaiming')
+        channel_sizes = [25] * 8
+        self.net = cuda(TCN(1,10,channel_sizes,kernel_size=7,dropout=0.05),self.cuda)
 
         # Optimizers
-        self.optim = optim.Adam([{'params':self.net.parameters(), 'lr':self.lr}],
-                                betas=(0.5, 0.999))
+        #self.optim = optim.Adam([{'params':self.net.parameters(), 'lr':self.lr}],betas=(0.5, 0.999))
+        self.optim = optim.Adam([{'params':self.net.parameters(), 'lr':self.lr}])
 
-    def train(self):
+    def train(self,args):
         self.set_mode('train')
-        for e in range(self.epoch):
+        lr = args.lr
+        for e in range(1,self.epoch+1):
             self.global_epoch += 1
-
             correct = 0.
             cost = 0.
             total = 0.
@@ -103,6 +106,8 @@ class Solver(object):
                 self.global_iter += 1
                 x = Variable(cuda(images, self.cuda))
                 y = Variable(cuda(labels, self.cuda))
+                #pdb.set_trace()
+                x = x.view(args.batch_size,1,784)
                 '''
                 经过toynet处理之后得到一个10分类的输出,logit.shape:[100,10]，所以一个batch有100个样本
                 logit[0] == [0.0545  0.1646  0.0683 -0.1407  0.0031  0.0560 -0.1895 -0.0183  0.0158  0.0183】
@@ -132,7 +137,7 @@ class Solver(object):
                 self.optim.zero_grad()
                 cost.backward()
                 self.optim.step()
-                if batch_idx % 100 == 0:
+                if batch_idx % 5 == 0:
                     if self.print_:
                         print()
                         print(self.env_name)
@@ -149,7 +154,13 @@ class Solver(object):
                         self.tf.add_scalars(main_tag='performance/cost',
                                             tag_scalar_dict={'train':cost.data[0]},
                                             global_step=self.global_iter)
+                if batch_idx >=200:
+                    break
             self.test()
+            if e % 10 == 0:
+                lr /= 10
+                for param_group in self.optim.param_groups:
+                    param_group['lr'] = lr
 
         if self.tensorboard:
             self.tf.add_scalars(main_tag='performance/best/acc',
@@ -169,7 +180,7 @@ class Solver(object):
         for batch_idx, (images, labels) in enumerate(data_loader):# 相当于测试的时候也是和训练的时候一样直接通过迭代器取出来的值
             x = Variable(cuda(images, self.cuda))
             y = Variable(cuda(labels, self.cuda))
-
+            x = x.view(-1, 1, 784)
             logit = self.net(x)
             prediction = logit.max(1)[1]
 
@@ -201,11 +212,11 @@ class Solver(object):
                                     tag_scalar_dict={'test':cost},
                                     global_step=self.global_iter)
 
-        # if self.history['acc'] < accuracy:
-        self.history['acc'] = accuracy
-        self.history['epoch'] = self.global_epoch
-        self.history['iter'] = self.global_iter
-        self.save_checkpoint('best_acc.tar')
+        if self.history['acc'] < accuracy:
+            self.history['acc'] = accuracy
+            self.history['epoch'] = self.global_epoch
+            self.history['iter'] = self.global_iter
+            self.save_checkpoint('best_acc.tar')
 
         self.set_mode('train')
 

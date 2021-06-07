@@ -22,12 +22,14 @@ class MyDataSet(Dataset):
         (train_set,train_labels) = load_data(folder,data_name,label_name)
         self.train_set = train_set
         self.train_labels = train_labels
-        # self.transform = transforms.Compose([transforms.ToTensor(),transforms.Normalize((0.5,),(0.5,)),])
+        self.transform = transforms.Compose([transforms.ToTensor(),transforms.Normalize((0.1307,),(0.3081,)),])
 
     def __getitem__(self,index):#返回的是单个item（如一个图片）
         img,target = self.train_set[index],int(self.train_labels[index])
-        img = torch.from_numpy(img)
-        img = img.float().div(255).mul(2).add(-1)
+        #img = torch.from_numpy(img)
+        #img = img.float().div(255).mul(2).add(-1)
+        img = self.transform(img)
+        img = img.view(1,28,28)
         return img,target
 
     def __len__(self):
@@ -59,7 +61,7 @@ def return_data2(args):
         shuffle=True,
         #num_workers=1,
         #pin_memory=True,
-        #drop_last=True
+        drop_last=True
     )
 
     test_loader = DataLoader(
