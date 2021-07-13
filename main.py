@@ -47,9 +47,9 @@ def main(args):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='toynet template')
-    parser.add_argument('--epoch', type=int, default=10, help='epoch size')
+    parser.add_argument('--epoch', type=int, default=20, help='epoch size')
     parser.add_argument('--batch_size', type=int, default=64, help='mini-batch size')
-    parser.add_argument('--lr', type=float, default=2e-3, help='learning rate')
+    parser.add_argument('--lr', type=float, default=2e-4, help='learning rate')
     parser.add_argument('--y_dim', type=int, default=10, help='the number of classes') # 类别的个数
     parser.add_argument('--target', type=int, default=-1, help='target class for targeted generation')
     parser.add_argument('--eps', type=float, default=1e-9, help='epsilon')

@@ -14,6 +14,7 @@ from utils.utils import rm_dir, cuda, where
 from adversary import Attack
 import pdb
 from models.model import TCN
+from models.arcface import ArcMarginModel
 
 
 class Solver(object):
@@ -34,6 +35,7 @@ class Solver(object):
         self.global_epoch = 0
         self.global_iter = 0
         self.print_ = not args.silent
+        self._arcface = ArcMarginModel()
 
         self.env_name = args.env_name
         self.tensorboard = args.tensorboard
@@ -88,11 +90,24 @@ class Solver(object):
         #self.net = cuda(ToyNet(y_dim=self.y_dim), self.cuda)
         #self.net.weight_init(_type='kaiming')
         channel_sizes = [25] * 8
-        self.net = cuda(TCN(1,10,channel_sizes,kernel_size=7,dropout=0.05),self.cuda)
+        self.net = cuda(TCN(1,2,channel_sizes,kernel_size=7,dropout=0.05),self.cuda)
 
         # Optimizers
         #self.optim = optim.Adam([{'params':self.net.parameters(), 'lr':self.lr}],betas=(0.5, 0.999))
         self.optim = optim.Adam([{'params':self.net.parameters(), 'lr':self.lr}])
+    
+
+    def at_loss(self,x,y):
+        x_adv = Variable(x.data,requires_grad=True)
+        h_adv = self.net(x_adv)
+        cost = F.cross_entropy(h_adv,y)
+        self.optim.zero_grad()
+        cost.backward()# 第一步反向传播求得梯度
+        x_adv = x_adv - 0.03 * x_adv.grad#第二步根据梯度进行x值的更新
+        x_adv2 = Variable(x_adv.data,requires_grad=True)
+        h_adv = self.net(x_adv2)
+        cost = F.cross_entropy(h_adv,y)
+        return cost
 
     def train(self,args):
         self.set_mode('train')
@@ -132,17 +147,20 @@ class Solver(object):
                 '''
                 # logit.max(1)[1]其中(1)表示行的最大值，[0]表示最大的值本身,[1]表示最大的那个值在该行对应的index
                 prediction = logit.max(1)[1] # prediction.shape: torch.Size([100]),此时，y == [1,2,1,1,1,3,5...],prediction也是类似的形式
-                correct = torch.eq(prediction, y).float().mean().data[0] # 先转换为flotaTensor，然后[0]取出floatTensor中的值：0.11999999731779099
+                correct = torch.eq(prediction, y).float().mean().item() # 先转换为flotaTensor，然后[0]取出floatTensor中的值：0.11999999731779099
                 cost = F.cross_entropy(logit, y) # cost也是一个Variable,计算出的cost是一个损失
+                lds = self.at_loss(x,y)
+                lds = lds * 2.0 
+                cost = cost + lds
                 self.optim.zero_grad()
                 cost.backward()
                 self.optim.step()
-                if batch_idx % 5 == 0:
+                if batch_idx % 200 == 0:
                     if self.print_:
                         print()
                         print(self.env_name)
                         print('[{:03d}:{:03d}]'.format(self.global_epoch, batch_idx))
-                        print('acc:{:.3f} loss:{:.3f}'.format(correct, cost.data[0]))
+                        print('acc:{:.3f} loss:{:.3f}'.format(correct, cost.item()))
 
                     if self.tensorboard:
                         self.tf.add_scalars(main_tag='performance/acc',
@@ -154,13 +172,11 @@ class Solver(object):
                         self.tf.add_scalars(main_tag='performance/cost',
                                             tag_scalar_dict={'train':cost.data[0]},
                                             global_step=self.global_iter)
-                if batch_idx >=200:
-                    break
             self.test()
-            if e % 10 == 0:
-                lr /= 10
-                for param_group in self.optim.param_groups:
-                    param_group['lr'] = lr
+            # if e % 10 == 0:
+            #     lr /= 10
+            #     for param_group in self.optim.param_groups:
+            #         param_group['lr'] = lr
 
         if self.tensorboard:
             self.tf.add_scalars(main_tag='performance/best/acc',
@@ -184,8 +200,9 @@ class Solver(object):
             logit = self.net(x)
             prediction = logit.max(1)[1]
 
-            correct += torch.eq(prediction, y).float().sum().data[0] # 这里不是通过mean的方式，而是通过sum的方式加在一起（即：正确的样本的个数）
-            cost += F.cross_entropy(logit, y, size_average=False).data[0]
+            correct += torch.eq(prediction, y).float().sum().item() # 这里不是通过mean的方式，而是通过sum的方式加在一起（即：正确的样本的个数）
+            cost += F.cross_entropy(logit, y, size_average=False).item()
+
             total += x.size(0)
 
         accuracy = correct / total
@@ -223,7 +240,7 @@ class Solver(object):
     def generate(self, num_sample=100, target=-1, epsilon=0.03, alpha=2/255, iteration=1):
         self.set_mode('eval')
 
-        for e in range(10):#假设有5个epoch
+        for e in range(1):#假设有5个epoch
             self.global_epoch += 1
             for batch_idx,(x_true,y_true) in enumerate(self.data_loader['train']):# x_true: [torch.FloatTensor of size 100x1x28x28]
                 self.global_iter += 1

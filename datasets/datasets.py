@@ -70,7 +70,7 @@ def return_data2(args):
         shuffle=False,
         #num_workers=1,
         #pin_memory=True,
-        #drop_last=False
+        drop_last=True
     )
     data_loader = dict()
     data_loader['train'] = train_loader
