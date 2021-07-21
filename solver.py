@@ -15,6 +15,8 @@ from adversary import Attack
 import pdb
 from models.model import TCN
 from models.arcface import ArcMarginModel
+from models.wideresnet import WideResNet
+import numpy as np
 
 
 class Solver(object):
@@ -86,11 +88,18 @@ class Solver(object):
             self.tf.add_text(tag='argument', text_string=str(args), global_step=self.global_epoch)
 
     def model_init(self, args):
-        # Network
-        #self.net = cuda(ToyNet(y_dim=self.y_dim), self.cuda)
-        #self.net.weight_init(_type='kaiming')
-        channel_sizes = [25] * 8
-        self.net = cuda(TCN(1,2,channel_sizes,kernel_size=7,dropout=0.05),self.cuda)
+        # 1.使用ToyNet
+        # self.net = cuda(ToyNet(y_dim=self.y_dim), self.cuda)
+        # self.net.weight_init(_type='kaiming')
+
+        # 2.使用TCN
+        # channel_sizes = [25] * 8
+        # self.net = cuda(TCN(1,self.y_dim,channel_sizes,kernel_size=7,dropout=0.05),self.cuda)
+
+        
+        # 使用WideResNet
+        self.net = cuda(WideResNet(num_classes=self.y_dim),self.cuda)
+
 
         # Optimizers
         #self.optim = optim.Adam([{'params':self.net.parameters(), 'lr':self.lr}],betas=(0.5, 0.999))
@@ -109,20 +118,93 @@ class Solver(object):
         cost = F.cross_entropy(h_adv,y)
         return cost
 
+
+    def interleave(self,xy, batch):
+        def interleave_offsets(batch, nu):
+            groups = [batch // (nu + 1)] * (nu + 1)
+            for x in range(batch - sum(groups)):
+                groups[-x - 1] += 1
+            offsets = [0]
+            for g in groups:
+                offsets.append(offsets[-1] + g)
+            assert offsets[-1] == batch
+            return offsets
+        nu = len(xy) - 1
+        offsets = interleave_offsets(batch, nu)
+        xy = [[v[offsets[p]:offsets[p + 1]] for p in range(nu + 1)] for v in xy]
+        for i in range(1, nu + 1):
+            xy[0][i], xy[i][i] = xy[i][i], xy[0][i]
+        return [torch.cat(v, dim=0) for v in xy]
+
+    def linear_rampup(self,current):
+        if self.epoch == 0:
+            return 1.0
+        else:
+            current = np.clip(current / self.epoch, 0.0, 1.0)
+            return float(current)
+
+    def semi_loss(self, outputs_x, targets_x, outputs_u, targets_u, epoch):#[64,10],[64,10],[128,10],[128,10]
+        probs_u = F.softmax(outputs_u, dim=1)
+
+        Lx = -torch.mean(torch.sum(F.log_softmax(outputs_x, dim=1) * targets_x, dim=1))
+        Lu = torch.mean((probs_u - targets_u)**2)
+
+        return Lx, Lu, 75 * self.linear_rampup(epoch)
+
+
+    
     def train(self,args):
         self.set_mode('train')
         lr = args.lr
+        unlabel_train_iter = iter(self.data_loader['un_label'])
         for e in range(1,self.epoch+1):
+
             self.global_epoch += 1
-            correct = 0.
-            cost = 0.
-            total = 0.
             for batch_idx, (images, labels) in enumerate(self.data_loader['train']):
+                try:
+                    inputs_u,_ = unlabel_train_iter.next() # images和inuts_u的shape是[64,1,28,28]
+                except Exception as mye:
+                    unlabel_train_iter = iter(self.data_loader['un_label'])
+                    inputs_u,_ = unlabel_train_iter.next()
                 self.global_iter += 1
+                batch_size = images.size(0)
+                targets_x = torch.zeros(batch_size,self.y_dim).scatter_(1,labels.view(-1,1).long(),1)
+                targets_x = Variable(cuda(targets_x,self.cuda))
+
                 x = Variable(cuda(images, self.cuda))
                 y = Variable(cuda(labels, self.cuda))
-                #pdb.set_trace()
+                inputs_u = Variable(cuda(inputs_u,self.cuda))#变为在cuda上执行的变量
                 x = x.view(args.batch_size,1,784)
+                inputs_u = inputs_u.view(args.batch_size,1,784)
+                with torch.no_grad():
+                    outputs_u = self.net(inputs_u)
+                    p = F.softmax(outputs_u, dim=1)
+                    pt = p **2
+                    targets_u = pt / pt.sum(dim=1,keepdim=True)
+                    targets_u = targets_u.detach()
+                # 1.构造all_inputs和all_targets
+                all_inputs = torch.cat([x,inputs_u],dim=0)#shape:[128,1,784]
+                all_targets = torch.cat([targets_x,targets_u],dim=0)#shape:[128,12]
+                l = np.random.beta(0.75,0.75)
+                l = max(l,1-l)
+                idx = torch.randperm(all_inputs.size(0))
+                # 2.构造输入inputs_a和inputs_b
+                input_a,input_b = all_inputs,all_inputs[idx]
+                target_a,target_b = all_targets,all_targets[idx]
+                l = 0.8
+                # 3.构造mixed_input和mixed_target
+                mixed_input = l * input_a + (1-l) * input_b
+                mixed_target = l * target_a + (1-l) * target_b
+                # 4.在批次之间交错标记和未标记的样品，以获得正确的批次规范计算
+                mixed_input = list(torch.split(mixed_input,batch_size))
+                mixed_input = self.interleave(mixed_input,batch_size)
+                logits = [self.net(mixed_input[0])]
+                logits.append(self.net(mixed_input[1]))
+                logits = self.interleave(logits,batch_size)
+                logits_x = logits[0] #[64,num_class]
+                logits_u = logits[1]
+                Lx,Lu,w = self.semi_loss(logits_x,mixed_target[:batch_size],logits_u,mixed_target[batch_size:],e + batch_idx/len(self.data_loader['train']))
+                loss = Lx + w * Lu
                 '''
                 经过toynet处理之后得到一个10分类的输出,logit.shape:[100,10]，所以一个batch有100个样本
                 logit[0] == [0.0545  0.1646  0.0683 -0.1407  0.0031  0.0560 -0.1895 -0.0183  0.0158  0.0183】
@@ -143,15 +225,25 @@ class Solver(object):
                 tensor([62,  6, 65])
                 >>> torch.max(a,1)[1]
                 tensor([2, 1, 1])
-                >>> 
+                >>>
                 '''
                 # logit.max(1)[1]其中(1)表示行的最大值，[0]表示最大的值本身,[1]表示最大的那个值在该行对应的index
                 prediction = logit.max(1)[1] # prediction.shape: torch.Size([100]),此时，y == [1,2,1,1,1,3,5...],prediction也是类似的形式
                 correct = torch.eq(prediction, y).float().mean().item() # 先转换为flotaTensor，然后[0]取出floatTensor中的值：0.11999999731779099
-                cost = F.cross_entropy(logit, y) # cost也是一个Variable,计算出的cost是一个损失
-                lds = self.at_loss(x,y)
-                lds = lds * 2.0 
-                cost = cost + lds
+                # out = self._arcface(logit,y)
+                # cost = F.cross_entropy(logit, y) # cost也是一个Variable,计算出的cost是一个损失
+                loss_ = F.cross_entropy(logit, y) # cost也是一个Variable,计算出的cost是一个损失
+                # cost = F.cross_entropy(out, y) # cost也是一个Variable,计算出的cost是一个损失
+
+                # lds = self.at_loss(x,y)
+                loss_lds = self.at_loss(x,y)
+                # cost = loss_ + loss_lds + loss
+                # cost = loss
+                # cost = loss_ + loss_lds
+                # cost = loss_ + loss
+                # cost = loss_ + loss + loss_lds
+                # cost = loss_lds
+                cost = loss_
                 self.optim.zero_grad()
                 cost.backward()
                 self.optim.step()
@@ -160,7 +252,7 @@ class Solver(object):
                         print()
                         print(self.env_name)
                         print('[{:03d}:{:03d}]'.format(self.global_epoch, batch_idx))
-                        print('acc:{:.3f} loss:{:.3f}'.format(correct, cost.item()))
+                        print('acc:{:.3f} loss:{:.3f}'.format(correct, cost.data[0]))
 
                     if self.tensorboard:
                         self.tf.add_scalars(main_tag='performance/acc',
@@ -173,16 +265,94 @@ class Solver(object):
                                             tag_scalar_dict={'train':cost.data[0]},
                                             global_step=self.global_iter)
             self.test()
-            # if e % 10 == 0:
-            #     lr /= 10
-            #     for param_group in self.optim.param_groups:
-            #         param_group['lr'] = lr
+            if e % 10 == 0:
+                lr = lr * 0.8
+                for param_group in self.optim.param_groups:
+                    param_group['lr'] = lr
 
         if self.tensorboard:
             self.tf.add_scalars(main_tag='performance/best/acc',
                                 tag_scalar_dict={'test':self.history['acc']},
                                 global_step=self.history['iter'])
         print(" [*] Training Finished!")
+
+
+
+
+    #def train(self,args):
+    #    self.set_mode('train')
+    #    lr = args.lr
+    #    for e in range(1,self.epoch+1):
+    #        self.global_epoch += 1
+    #        correct = 0.
+    #        cost = 0.
+    #        total = 0.
+    #        for batch_idx, (images, labels) in enumerate(self.data_loader['train']):
+    #            self.global_iter += 1
+    #            x = Variable(cuda(images, self.cuda))
+    #            y = Variable(cuda(labels, self.cuda))
+    #            #pdb.set_trace()
+    #            x = x.view(args.batch_size,1,784)
+    #            '''
+    #            经过toynet处理之后得到一个10分类的输出,logit.shape:[100,10]，所以一个batch有100个样本
+    #            logit[0] == [0.0545  0.1646  0.0683 -0.1407  0.0031  0.0560 -0.1895 -0.0183  0.0158  0.0183】
+    #            '''
+    #            logit = self.net(x)
+    #            '''
+    #            >>> import torch
+    #            >>> a = torch.tensor([[1,5,62,54], [2,6,2,6], [2,65,2,6]])
+    #            >>> print(a)
+    #            tensor([[ 1,  5, 62, 54],
+    #                    [ 2,  6,  2,  6],
+    #                    [ 2, 65,  2,  6]])
+    #            >>> torch.max(a,1)
+    #            torch.return_types.max(
+    #            values=tensor([62,  6, 65]),
+    #            indices=tensor([2, 1, 1]))
+    #            >>> torch.max(a,1)[0]
+    #            tensor([62,  6, 65])
+    #            >>> torch.max(a,1)[1]
+    #            tensor([2, 1, 1])
+    #            >>> 
+    #            '''
+    #            # logit.max(1)[1]其中(1)表示行的最大值，[0]表示最大的值本身,[1]表示最大的那个值在该行对应的index
+    #            prediction = logit.max(1)[1] # prediction.shape: torch.Size([100]),此时，y == [1,2,1,1,1,3,5...],prediction也是类似的形式
+    #            correct = torch.eq(prediction, y).float().mean().item() # 先转换为flotaTensor，然后[0]取出floatTensor中的值：0.11999999731779099
+    #            cost = F.cross_entropy(logit, y) # cost也是一个Variable,计算出的cost是一个损失
+    #            lds = self.at_loss(x,y)
+    #            lds = lds * 2.0 
+    #            cost = cost + lds
+    #            self.optim.zero_grad()
+    #            cost.backward()
+    #            self.optim.step()
+    #            if batch_idx % 200 == 0:
+    #                if self.print_:
+    #                    print()
+    #                    print(self.env_name)
+    #                    print('[{:03d}:{:03d}]'.format(self.global_epoch, batch_idx))
+    #                    print('acc:{:.3f} loss:{:.3f}'.format(correct, cost.item()))
+
+    #                if self.tensorboard:
+    #                    self.tf.add_scalars(main_tag='performance/acc',
+    #                                        tag_scalar_dict={'train':correct},
+    #                                        global_step=self.global_iter)
+    #                    self.tf.add_scalars(main_tag='performance/error',
+    #                                        tag_scalar_dict={'train':1-correct},
+    #                                        global_step=self.global_iter)
+    #                    self.tf.add_scalars(main_tag='performance/cost',
+    #                                        tag_scalar_dict={'train':cost.data[0]},
+    #                                        global_step=self.global_iter)
+    #        self.test()
+    #        # if e % 10 == 0:
+    #        #     lr /= 10
+    #        #     for param_group in self.optim.param_groups:
+    #        #         param_group['lr'] = lr
+
+    #    if self.tensorboard:
+    #        self.tf.add_scalars(main_tag='performance/best/acc',
+    #                            tag_scalar_dict={'test':self.history['acc']},
+    #                            global_step=self.history['iter'])
+    #    print(" [*] Training Finished!")
 
 
     def test(self):

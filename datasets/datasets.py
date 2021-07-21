@@ -50,6 +50,7 @@ def load_data(data_folder,data_name,label_name):
 
     return (x_train,y_train)
 
+
 def return_data2(args):
     trainDataset = MyDataSet('datasets/MNIST/','train-images-idx3-ubyte.gz','train-labels-idx1-ubyte.gz')
     testDataset = MyDataSet('datasets/MNIST/','t10k-images-idx3-ubyte.gz','t10k-labels-idx1-ubyte.gz')
@@ -70,12 +71,50 @@ def return_data2(args):
         shuffle=False,
         #num_workers=1,
         #pin_memory=True,
+        #drop_last=False
+    )
+
+    unlabel_loader = DataLoader(
+        dataset=testDataset,
+        batch_size=batch_size,
+        shuffle=True,
+        # num_workers=1,
+        # pin_memory=True,
         drop_last=True
     )
     data_loader = dict()
     data_loader['train'] = train_loader
     data_loader['test'] = test_loader
+    data_loader['un_label'] = unlabel_loader
     return data_loader
+
+
+#def return_data2(args):
+#    trainDataset = MyDataSet('datasets/MNIST/','train-images-idx3-ubyte.gz','train-labels-idx1-ubyte.gz')
+#    testDataset = MyDataSet('datasets/MNIST/','t10k-images-idx3-ubyte.gz','t10k-labels-idx1-ubyte.gz')
+#    batch_size = args.batch_size
+#    # train_loader
+#    train_loader = DataLoader(
+#        dataset=trainDataset,
+#        batch_size=batch_size,
+#        shuffle=True,
+#        #num_workers=1,
+#        #pin_memory=True,
+#        drop_last=True
+#    )
+#
+#    test_loader = DataLoader(
+#        dataset=testDataset,
+#        batch_size=batch_size,
+#        shuffle=False,
+#        #num_workers=1,
+#        #pin_memory=True,
+#        drop_last=True
+#    )
+#    data_loader = dict()
+#    data_loader['train'] = train_loader
+#    data_loader['test'] = test_loader
+#    return data_loader
 
 
 def return_data(args):
