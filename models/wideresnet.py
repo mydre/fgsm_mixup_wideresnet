@@ -47,7 +47,7 @@ class NetworkBlock(nn.Module):
         return self.layer(x)
 
 class WideResNet(nn.Module):# 3层block，外加开头和结尾
-    def __init__(self, num_classes,pixel_width, depth=28, widen_factor=2, dropRate=0.0):
+    def __init__(self, num_classes,pixel_width, depth=28, widen_factor=2, dropRate=0.5):
         super(WideResNet, self).__init__()
         self.pixel_width = pixel_width
         nChannels = [16, 16*widen_factor, 32*widen_factor, 64*widen_factor]# [16,32,64,128]
@@ -82,7 +82,6 @@ class WideResNet(nn.Module):# 3层block，外加开头和结尾
     def forward(self, x):# x.shape:[64,3,32,32]
 
         x = x.view(-1,1,self.pixel_width,self.pixel_width)
-        pdb.set_trace()
         out = self.conv1(x) #torch.Size([64, 16, 43, 43])
         out = self.block1(out) # torch.Size([64, 32, 43, 43])
         out = self.block2(out) # torch.Size([64, 64, 22, 22])
