@@ -238,13 +238,13 @@ class Solver(object):
 
                 # lds = self.at_loss(x,y)
                 loss_lds = self.at_loss(x,y)
-                # cost = loss_ + loss_lds + loss
+                cost = loss_ + loss_lds + loss
                 # cost = loss
                 # cost = loss_ + loss_lds
                 # cost = loss_ + loss
                 # cost = loss_ + loss + loss_lds
                 # cost = loss_lds
-                cost = loss_
+                # cost = loss_
                 self.optim.zero_grad()
                 cost.backward()
                 self.optim.step()

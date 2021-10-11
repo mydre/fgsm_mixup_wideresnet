@@ -47,7 +47,7 @@ class NetworkBlock(nn.Module):
         return self.layer(x)
 
 class WideResNet(nn.Module):# 3层block，外加开头和结尾
-    def __init__(self, num_classes,pixel_width, depth=28, widen_factor=2, dropRate=0.5):
+    def __init__(self, num_classes,pixel_width, depth=28, widen_factor=2, dropRate=0.0):
         super(WideResNet, self).__init__()
         self.pixel_width = pixel_width
         nChannels = [16, 16*widen_factor, 32*widen_factor, 64*widen_factor]# [16,32,64,128]
