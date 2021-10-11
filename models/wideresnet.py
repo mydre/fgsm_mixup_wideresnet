@@ -80,7 +80,6 @@ class WideResNet(nn.Module):# 3层block，外加开头和结尾
                 m.bias.data.zero_()
 
     def forward(self, x):# x.shape:[64,3,32,32]
-
         x = x.view(-1,1,self.pixel_width,self.pixel_width)
         out = self.conv1(x) #torch.Size([64, 16, 43, 43])
         out = self.block1(out) # torch.Size([64, 32, 43, 43])
