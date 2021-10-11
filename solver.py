@@ -24,6 +24,7 @@ class Solver(object):
         self.args = args
 
         # Basic
+        self.pixel_width = args.pixel_width
         self.cuda = (args.cuda and torch.cuda.is_available())
         self.epoch = args.epoch
         self.batch_size = args.batch_size
@@ -60,7 +61,7 @@ class Solver(object):
         self.history['iter'] = 0
 
         # Models & Optimizers
-        self.model_init(args)
+        self.model_init()
         self.load_ckpt = args.load_ckpt
         if self.load_ckpt != '':
             self.load_checkpoint(self.load_ckpt) # 加载checkpoint，恢复信息
@@ -87,10 +88,10 @@ class Solver(object):
             self.tf = SummaryWriter(log_dir=str(self.summary_dir))
             self.tf.add_text(tag='argument', text_string=str(args), global_step=self.global_epoch)
 
-    def model_init(self, args):
+    def model_init(self):
         # 1.使用ToyNet
-        # self.net = cuda(ToyNet(y_dim=self.y_dim), self.cuda)
-        # self.net.weight_init(_type='kaiming')
+        self.net = cuda(ToyNet(y_dim=self.y_dim,pixel_width=self.pixel_width), self.cuda)
+        self.net.weight_init(_type='kaiming')
 
         # 2.使用TCN
         # channel_sizes = [25] * 8
@@ -98,7 +99,7 @@ class Solver(object):
 
         
         # 使用WideResNet
-        self.net = cuda(WideResNet(num_classes=self.y_dim),self.cuda)
+        #self.net = cuda(WideResNet(num_classes=self.y_dim, pixel_width = self.pixel_width), self.cuda)
 
 
         # Optimizers
@@ -174,8 +175,8 @@ class Solver(object):
                 x = Variable(cuda(images, self.cuda))
                 y = Variable(cuda(labels, self.cuda))
                 inputs_u = Variable(cuda(inputs_u,self.cuda))#变为在cuda上执行的变量
-                x = x.view(args.batch_size,1,784)
-                inputs_u = inputs_u.view(args.batch_size,1,784)
+                x = x.view(args.batch_size,1,args.pixel_width**2)
+                inputs_u = inputs_u.view(args.batch_size,1,args.pixel_width**2)
                 with torch.no_grad():
                     outputs_u = self.net(inputs_u)
                     p = F.softmax(outputs_u, dim=1)
@@ -366,7 +367,7 @@ class Solver(object):
         for batch_idx, (images, labels) in enumerate(data_loader):# 相当于测试的时候也是和训练的时候一样直接通过迭代器取出来的值
             x = Variable(cuda(images, self.cuda))
             y = Variable(cuda(labels, self.cuda))
-            x = x.view(-1, 1, 784)
+            x = x.view(-1, 1, self.pixel_width**2)
             logit = self.net(x)
             prediction = logit.max(1)[1]
 

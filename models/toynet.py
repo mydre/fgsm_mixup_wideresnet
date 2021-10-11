@@ -2,9 +2,10 @@
 import torch.nn as nn
 import pdb
 class ToyNet(nn.Module):
-    def __init__(self, x_dim=784, y_dim=10): # 输入维度是784，输出维度是10
+    def __init__(self, x_dim=784,pixel_width=30, y_dim=10): # 输入维度是784，输出维度是10
         super(ToyNet, self).__init__()
-        self.x_dim = x_dim
+        # self.x_dim = x_dim
+        self.x_dim = pixel_width**2
         self.y_dim = y_dim
 
         # mlp:multilayer perceptron 多层感知机
