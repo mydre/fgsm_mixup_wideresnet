@@ -90,8 +90,8 @@ class Solver(object):
 
     def model_init(self):
         # 1.使用ToyNet
-        self.net = cuda(ToyNet(y_dim=self.y_dim,pixel_width=self.pixel_width), self.cuda)
-        self.net.weight_init(_type='kaiming')
+        #self.net = cuda(ToyNet(y_dim=self.y_dim,pixel_width=self.pixel_width), self.cuda)
+        #self.net.weight_init(_type='kaiming')
 
         # 2.使用TCN
         # channel_sizes = [25] * 8
@@ -99,7 +99,7 @@ class Solver(object):
 
         
         # 使用WideResNet
-        #self.net = cuda(WideResNet(num_classes=self.y_dim, pixel_width = self.pixel_width), self.cuda)
+        self.net = cuda(WideResNet(num_classes=self.y_dim, pixel_width = self.pixel_width), self.cuda)
 
 
         # Optimizers
