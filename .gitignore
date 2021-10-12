@@ -1,0 +1,8 @@
+__pycache__/
+checkpoints/
+datasets/__pycache__/
+models/__pycache__/
+misc/
+*.xml
+*.pyc
+README.md
