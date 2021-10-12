@@ -63,7 +63,7 @@ def return_data2(args):
         shuffle=True,
         #num_workers=1,
         #pin_memory=True,
-        drop_last=True
+        # drop_last=True
     )
 
     test_loader = DataLoader(
