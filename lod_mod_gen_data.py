@@ -8,6 +8,7 @@ from utils.utils import str2bool
 from pathlib import Path
 from torch.autograd import Variable
 import numpy as np
+from loguru import logger
 
 class MyGenerator(object):
     def __init__(self):
@@ -42,24 +43,25 @@ class MyGenerator(object):
     def solve_train_data(self):
         idx = 0
         for images, labels in self.data_loader['train']:
-            print(idx,',',end="")
+            logger.info("generator train idx: " + str(idx))
             x = Variable(cuda(images, self.cuda))
-            x = x.view(self.args.batch_size, 1, self.args.pixel_width ** 2)
-            tmp, _ = self.net(x)  # 网络的前半部分
-            labels = labels.view(-1,1)
+            x = x.view(-1, 1, self.args.pixel_width ** 2)  # 尾部是固定的，然后有的batch的size是不完整的
+            tmp, _= self.net(x)  # 网络的前半部分
+            labels = labels.view(-1, 1)
             labels = labels.cpu()
             labels = labels.numpy()
             tmp = tmp.cpu()
             tmp = tmp.detach().numpy()
-            data = np.concatenate((tmp,labels),axis=1)
-            with open("_train.csv","a") as f:
-                np.savetxt(f,data,delimiter=',')
+            data = np.concatenate((tmp, labels), axis=1)
+            with open("_train.csv", "a") as f:
+                np.savetxt(f, data, delimiter=',')
             idx += 1
+
 
     def solve_test_data(self):
         idx = 0
         for images, labels in self.data_loader['test']:
-            print(idx, ',', end="")
+            logger.info("idx: " + str(idx))
             x = Variable(cuda(images, self.cuda))
             x = x.view(-1, 1, self.args.pixel_width ** 2)  # 尾部是固定的，然后有的batch的size是不完整的
             tmp, _ = self.net(x)  # 网络的前半部分
@@ -77,5 +79,5 @@ class MyGenerator(object):
 if __name__ == '__main__':
     myg = MyGenerator()
     myg.load_checkpoint()
-    # myg.solve_train_data()
-    myg.solve_test_data()
+    myg.solve_train_data()
+    # myg.solve_test_data()
